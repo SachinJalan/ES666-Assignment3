@@ -289,7 +289,7 @@ class PanaromaStitcher():
         if(imageset == 'I1'):
             focal_length = 2100
         for image in resized_images:
-            warped_images.append(self.ProjectOntoCylinder(image,focal_length=focal_length))
+            warped_images.append(self.ProjectOntoCylinder(image,f=focal_length))
         # warped_images = self.cylindrical_warp(resized_images)
        
         if(imageset == 'I3'):
