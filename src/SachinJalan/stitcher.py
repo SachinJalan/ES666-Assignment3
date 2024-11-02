@@ -17,8 +17,9 @@ class PanaromaStitcher():
         for idx, img in enumerate(images):
             # Get the original dimensions
             height, width = img.shape[:2]
-            if(height < 720):
-                continue
+            # if(height < 720):
+            #     resized_images.append(img)
+            #     continue
             print(f"Image {idx + 1}: Original Dimensions = {width}x{height}")
             
             # Calculate aspect ratio and new width based on target height
@@ -33,51 +34,109 @@ class PanaromaStitcher():
             print(f"Image {idx + 1}: Resized Dimensions = {new_width}x{new_height}")
         return resized_images
 
-    def cylindrical_warp(self,images,focal_length=1200):
-        warped_images = []
-        for idx, img in enumerate(images):
-            height, width = img.shape[:2]
-            # Create meshgrid of coordinates
-            y_i, x_i = np.indices((height, width))
-            print(focal_length)
-            # Convert to relative coordinates
-            x = x_i - width/2
-            y = y_i - height/2
-            
-            # Calculate theta and h for cylindrical projection
-            theta = np.arctan(x/focal_length)
-            h = y * np.sqrt(x*x + focal_length*focal_length) / focal_length
-            
-            # Map to output coordinates
-            x_proj = focal_length * theta + width/2
-            y_proj = h + height/2
-            
-            # Create map for cv2.remap
-            map_x = x_proj.astype(np.float32)
-            map_y = y_proj.astype(np.float32)
-            
-            # Perform the warping
-            warped = cv2.remap(img, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-            warped_images.append(warped)
-        return warped_images
-    
+    def ProjectOntoCylinder(self,InitialImage, f=1100):
+
+        # Ensure input image is in proper format
+        if len(InitialImage.shape) == 2:
+            InitialImage = cv2.cvtColor(InitialImage, cv2.COLOR_GRAY2BGR)
+        
+        # Get image dimensions
+        h, w = InitialImage.shape[:2]
+        center = np.array([w // 2, h // 2], dtype=np.float32)
+        
+        # Create coordinate matrices for the entire image
+        y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+        
+        # Apply cylindrical projection formulas
+        # Calculate theta and h for cylindrical coordinates
+        theta = (x - center[0]) / f
+        h_cyl = (y - center[1]) / f
+        
+        # Calculate 3D cylindrical coordinates
+        x_cyl = f * np.tan(theta)
+        y_cyl = h_cyl * np.sqrt(x_cyl**2 + f**2)
+        
+        # Project back to 2D coordinates
+        map_x = x_cyl + center[0]
+        map_y = y_cyl + center[1]
+        
+        # Create the transformed image using cv2.remap
+        # Convert mapping coordinates to proper format
+        map_x = map_x.astype(np.float32)
+        map_y = map_y.astype(np.float32)
+        
+        # Apply the transformation using cv2.remap
+        TransformedImage = cv2.remap(InitialImage, 
+                                    map_x, 
+                                    map_y,
+                                    interpolation=cv2.INTER_LINEAR,
+                                    borderMode=cv2.BORDER_CONSTANT,
+                                    borderValue=0)
+        
+        # Find valid regions (non-black pixels)
+        gray = cv2.cvtColor(TransformedImage, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+        
+        # Find the bounds of the valid region
+        coords = cv2.findNonZero(mask)
+        x_coords = coords[:, 0, 0]
+        min_x = np.min(x_coords)
+        max_x = np.max(x_coords)
+        
+        # Crop the image to remove black regions
+        TransformedImage = TransformedImage[:, min_x:max_x+1]
+        
+        return TransformedImage
+
+    def test_projection(self,img, focal_length=1000):
+        """
+        Test function to demonstrate the cylindrical projection.
+        
+        Parameters:
+        image_path: str
+            Path to the input image
+        focal_length: float
+            Focal length in pixels (default: 1100)
+        """
+        # Read the image
+        # img = cv2.imread(image_path)
+        if img is None:
+            raise ValueError("Could not read the image")
+        
+        # Apply cylindrical projection
+        projected_img = self.ProjectOntoCylinder(img, f=focal_length)
+        # plt.figure(figsize=(12, 6))
+        # plt.plot(valid_x, valid_y, 'ro', markersize=1)
+        # plt.title("Valid x-coordinates after Cylindrical Projection")
+        # plt.xlabel("x-coordinates")
+        # plt.ylabel("y-coordinates")
+        # plt.show()
+        # plt.figure(figsize=(12, 6))
+        # plt.subplot(1, 2, 1)
+        # plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        # plt.title("Original Image")
+        # plt.axis("off")
+
+        # plt.subplot(1, 2, 2)
+        # plt.imshow(cv2.cvtColor(projected_img, cv2.COLOR_BGR2RGB))
+        # plt.title("Cylindrical Projection")
+        # plt.axis("off")
+        # plt.show() 
+        return projected_img
+
     def detectFeatures(self,image):
-    # Convert the image to grayscale
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         sift = cv2.SIFT_create()
         kp, des = sift.detectAndCompute(gray, None)
         return kp, des
     
     def matchFeatures(self,image1, image2):
-    # Detect features in both images
         kp1, des1 = self.detectFeatures(image1)
         kp2, des2 = self.detectFeatures(image2)
-        
-        # Match the features
+    
         bf = cv2.BFMatcher(cv2.NORM_L2)
         matches = bf.knnMatch(des1, des2, k=2)
         
-        # Apply ratio test
         good_matches = []
         for m in matches:
             if len(m) ==2 and m[0].distance < 0.75 * m[1].distance:
@@ -104,15 +163,12 @@ class PanaromaStitcher():
         best_mask = None
         best_score = 0
         for i in range(n_iter):
-            # Randomly select 4 matches
             randomIdx = np.random.choice(range(len(matches)), 4)
             random_matches = [matches[i] for i in randomIdx]
             
-            # Get the keypoints for the selected matches
             src_pts = np.float32([kp1[i].pt for (_, i, _) in random_matches]).reshape(-1, 1, 2)
             dst_pts = np.float32([kp2[i].pt for (i, _, _) in random_matches]).reshape(-1, 1, 2)
             
-            # use calculate homography to get the homography matrix
             H = self.calculateHomography(src_pts, dst_pts)
 
             current_inliers = []
@@ -140,7 +196,6 @@ class PanaromaStitcher():
         )
         warped_corners = np.dot(H, image_corners)
         warped_corners /= warped_corners[2,:]
-        # print("this is corner matrix",warped_corners)
         minx = np.floor(np.min(warped_corners[0]))
         miny = np.floor(np.min(warped_corners[1]))
         maxx = np.floor(np.max(warped_corners[0]))
@@ -148,7 +203,6 @@ class PanaromaStitcher():
         sizeX = int(maxx - minx)
         sizeY = int(maxy - miny)
         homoInv = np.linalg.inv(H)
-        # print("This is size",sizeX, sizeY)
         x_indices, y_indices = np.meshgrid(np.arange(sizeX) + minx, np.arange(sizeY) + miny)
         coordinates = np.stack((x_indices.flatten(), y_indices.flatten(), np.ones_like(x_indices.flatten())), axis=0)
         transformed_coords = homoInv @ coordinates
@@ -161,15 +215,12 @@ class PanaromaStitcher():
         return warpedImg, minx, miny 
     
     def shrink_image_array(self,result):
-    # Calculate the sum of each row and column
         row_sums = np.sum(result, axis=1)
         col_sums = np.sum(result, axis=0)
 
-        # Find the indices of the non-zero-sum rows and columns
         non_zero_rows = np.where(row_sums != 0)[0]
         non_zero_cols = np.where(col_sums != 0)[0]
 
-        # Trim the result array using non-zero indices
         trimmed_result = result[non_zero_rows[0]:non_zero_rows[-1] + 1, non_zero_cols[0]:non_zero_cols[-1] + 1]
 
         return trimmed_result
@@ -186,7 +237,6 @@ class PanaromaStitcher():
         mask1 = np.zeros((hA, wA), dtype=np.uint8)
         mask2 = np.zeros((hB, wB), dtype=np.uint8)
         resulttemp = np.zeros((y_max, x_max, 3), dtype=imageA.dtype)
-        # print("The shape of result",result.shape)
         if minx > 0:
             if (miny<0):
                 result[:hB, minx : minx + wB] = warpedimage
@@ -270,21 +320,32 @@ class PanaromaStitcher():
         warpedd, ax, ay = self.warpImage(image0, ht)
         result = self.blendImages(image1, warpedd, ax, ay, ht)
         # result = trim(result)
-        plt.figure(figsize=(20, 20))
-        plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-        plt.axis("off")
-        plt.show()
+        # plt.figure(figsize=(20, 20))
+        # plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+        # plt.axis("off")
+        # plt.show()
         return result
     
-    def make_panaroma_for_images_in(self,path):
+    def make_panaroma_for_images_in(self,path,useCylin=True):
         imf = path
         all_images = sorted(glob.glob(imf+os.sep+'*'))
         print('Found {} Images for stitching'.format(len(all_images)))
         print(all_images)
         resized_images = self.get_resized_images(all_images)
-        warped_images = self.cylindrical_warp(resized_images)
+        warped_images = []
+        for image in resized_images:
+            warped_images.append(self.test_projection(image))
+        # warped_images = self.cylindrical_warp(resized_images)
+        imageset = all_images[0].split(os.sep)[-2]
+        if(imageset == 'I3'):
+            resized_images.pop(0)
+            warped_images.pop(0)
+            resized_images.pop(0)
+            warped_images.pop(0)
+        if(useCylin):
+            resized_images = warped_images
         mididx = len(resized_images)//2
-        result = resized_images[mididx]
+        result = warped_images[mididx]
         left = mididx - 1
         right = mididx + 1
         while(left >= 0 or right < len(resized_images)):
