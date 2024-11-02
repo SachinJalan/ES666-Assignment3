@@ -4,8 +4,6 @@ import glob
 import cv2
 import os
 import matplotlib.pyplot as plt
-from src.JohnDoe import some_function
-from src.JohnDoe.some_folder import folder_func
 
 class PanaromaStitcher():
     def __init__(self):
