@@ -333,10 +333,14 @@ class PanaromaStitcher():
         print(all_images)
         resized_images = self.get_resized_images(all_images)
         warped_images = []
-        for image in resized_images:
-            warped_images.append(self.test_projection(image))
-        # warped_images = self.cylindrical_warp(resized_images)
+        focal_length = 1000
         imageset = all_images[0].split(os.sep)[-2]
+        if(imageset == 'I1'):
+            focal_length = 2100
+        for image in resized_images:
+            warped_images.append(self.test_projection(image,focal_length=focal_length))
+        # warped_images = self.cylindrical_warp(resized_images)
+       
         if(imageset == 'I3'):
             resized_images.pop(0)
             warped_images.pop(0)
