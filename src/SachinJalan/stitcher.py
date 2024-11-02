@@ -36,36 +36,26 @@ class PanaromaStitcher():
 
     def ProjectOntoCylinder(self,InitialImage, f=1100):
 
-        # Ensure input image is in proper format
         if len(InitialImage.shape) == 2:
             InitialImage = cv2.cvtColor(InitialImage, cv2.COLOR_GRAY2BGR)
         
-        # Get image dimensions
         h, w = InitialImage.shape[:2]
         center = np.array([w // 2, h // 2], dtype=np.float32)
         
-        # Create coordinate matrices for the entire image
         y, x = np.mgrid[0:h, 0:w].astype(np.float32)
         
-        # Apply cylindrical projection formulas
-        # Calculate theta and h for cylindrical coordinates
         theta = (x - center[0]) / f
         h_cyl = (y - center[1]) / f
         
-        # Calculate 3D cylindrical coordinates
         x_cyl = f * np.tan(theta)
         y_cyl = h_cyl * np.sqrt(x_cyl**2 + f**2)
         
-        # Project back to 2D coordinates
         map_x = x_cyl + center[0]
         map_y = y_cyl + center[1]
         
-        # Create the transformed image using cv2.remap
-        # Convert mapping coordinates to proper format
         map_x = map_x.astype(np.float32)
         map_y = map_y.astype(np.float32)
         
-        # Apply the transformation using cv2.remap
         TransformedImage = cv2.remap(InitialImage, 
                                     map_x, 
                                     map_y,
@@ -73,56 +63,17 @@ class PanaromaStitcher():
                                     borderMode=cv2.BORDER_CONSTANT,
                                     borderValue=0)
         
-        # Find valid regions (non-black pixels)
         gray = cv2.cvtColor(TransformedImage, cv2.COLOR_BGR2GRAY)
         _, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
         
-        # Find the bounds of the valid region
         coords = cv2.findNonZero(mask)
         x_coords = coords[:, 0, 0]
         min_x = np.min(x_coords)
         max_x = np.max(x_coords)
         
-        # Crop the image to remove black regions
         TransformedImage = TransformedImage[:, min_x:max_x+1]
         
         return TransformedImage
-
-    def test_projection(self,img, focal_length=1000):
-        """
-        Test function to demonstrate the cylindrical projection.
-        
-        Parameters:
-        image_path: str
-            Path to the input image
-        focal_length: float
-            Focal length in pixels (default: 1100)
-        """
-        # Read the image
-        # img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError("Could not read the image")
-        
-        # Apply cylindrical projection
-        projected_img = self.ProjectOntoCylinder(img, f=focal_length)
-        # plt.figure(figsize=(12, 6))
-        # plt.plot(valid_x, valid_y, 'ro', markersize=1)
-        # plt.title("Valid x-coordinates after Cylindrical Projection")
-        # plt.xlabel("x-coordinates")
-        # plt.ylabel("y-coordinates")
-        # plt.show()
-        # plt.figure(figsize=(12, 6))
-        # plt.subplot(1, 2, 1)
-        # plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        # plt.title("Original Image")
-        # plt.axis("off")
-
-        # plt.subplot(1, 2, 2)
-        # plt.imshow(cv2.cvtColor(projected_img, cv2.COLOR_BGR2RGB))
-        # plt.title("Cylindrical Projection")
-        # plt.axis("off")
-        # plt.show() 
-        return projected_img
 
     def detectFeatures(self,image):
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -338,7 +289,7 @@ class PanaromaStitcher():
         if(imageset == 'I1'):
             focal_length = 2100
         for image in resized_images:
-            warped_images.append(self.test_projection(image,focal_length=focal_length))
+            warped_images.append(self.ProjectOntoCylinder(image,focal_length=focal_length))
         # warped_images = self.cylindrical_warp(resized_images)
        
         if(imageset == 'I3'):
